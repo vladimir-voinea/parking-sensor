@@ -9,6 +9,8 @@
 #include <ultrasonic_sensor.hpp>
 #include <rgb_led.hpp>
 #include <optional>
+#include <event_cycle_detector.hpp>
+#include "debounce.hpp"
 
 using namespace ardent;
 
@@ -30,18 +32,20 @@ void loop() {
   static rgb_led<common_cathode_tag> led{6, 5, 3};
   static ardent::passive_buzzer buzzer{12};
   static bool measuring = false;
-  static debounced_button button{{8}, [last_sample_time = estd::milliseconds{0}]() {
-      measuring = !measuring;
-      if(measuring) {
-        led.turn_on();
-      } else {
-        led.turn_off();
-        buzzer.stop_beeping();
-      }
+  static auto press_detector = event_cycle_detector(push_button{8}, []() {
+    Serial.println("Button pressed");
+    measuring = !measuring;
+    if(measuring) {
+      led.turn_on();
+    } else {
+      led.turn_off();
+      buzzer.stop_beeping();
     }
-  };
+  }
+  );
 
-  button.update();
+
+  press_detector.update();
 
   if(measuring)
   {
