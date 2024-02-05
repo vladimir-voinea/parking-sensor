@@ -1,84 +1,97 @@
 #include <Arduino.h>
+
+#include <debounced_button.hpp>
+#include <event_cycle_detector.hpp>
+#include <optional>
 #include <passive_buzzer.hpp>
 #include <pitches.hpp>
-#include <sleep.hpp>
-#include <utility>
-#include <tuple>
-#include <time.hpp>
-#include <debounced_button.hpp>
-#include <ultrasonic_sensor.hpp>
 #include <rgb_led.hpp>
-#include <optional>
-#include <event_cycle_detector.hpp>
+#include <sleep.hpp>
+#include <time.hpp>
+#include <tuple>
+#include <ultrasonic_sensor.hpp>
+#include <utility>
+
 #include "debounce.hpp"
 
 using namespace ardent;
 
-using interval = std::tuple<centimeters, centimeters, rgb, std::optional<pitches>, estd::milliseconds, estd::milliseconds>;
-const interval ranges[] = {
-  {ultrasonic_sensor::min_distance, centimeters{20}, color::red, pitches::a4, estd::milliseconds{100}, estd::milliseconds{0}},
-  {centimeters{20}, centimeters{50}, color::yellow, pitches::a4, estd::milliseconds{100}, estd::milliseconds{250}},
-  {centimeters{50}, centimeters{80}, color::green, pitches::a4, estd::milliseconds{100}, estd::milliseconds{500}},
-  {centimeters{80}, ultrasonic_sensor::max_distance, color::white, {}, estd::milliseconds{100}, estd::milliseconds{100}}
+struct interval
+{
+    centimeters start, end;
+    rgb color;
+    pitches pitch;
+    estd::milliseconds duration, pause;
 };
 
-void setup() {
-  Serial.begin(9600);
+constexpr interval ranges[] PROGMEM = {
+    {ultrasonic_sensor::min_distance, centimeters{30}, color::red, pitches::a4, estd::milliseconds{100},
+     estd::milliseconds{0}},
+    {centimeters{30}, centimeters{70}, color::yellow, pitches::a4, estd::milliseconds{100}, estd::milliseconds{250}},
+    {centimeters{70}, centimeters{150}, color::green, pitches::a4, estd::milliseconds{100}, estd::milliseconds{500}},
+    {centimeters{150}, ultrasonic_sensor::max_distance, color::white, pitches::a4, estd::milliseconds{0},
+     estd::milliseconds{0}}};
+
+interval get_interval(int index)
+{
+    interval result;
+    memcpy_P(&result, &ranges[index], sizeof(interval));
+    return result;
 }
 
-void loop() {
+void setup()
+{
+    Serial.begin(9600);
+}
 
-  static ultrasonic_sensor radar {9, 10};
-  static rgb_led<common_cathode_tag> led{6, 5, 3};
-  static ardent::passive_buzzer buzzer{12};
-  static bool measuring = false;
-  static auto press_detector = event_cycle_detector(push_button{8}, []() {
-    Serial.println("Button pressed");
-    measuring = !measuring;
-    if(measuring) {
-      led.turn_on();
-    } else {
-      led.turn_off();
-      buzzer.stop_beeping();
-    }
-  }
-  );
-
-
-  press_detector.update();
-  buzzer.update();
-
-  if(measuring)
-  {
-      constexpr auto sample_interval = estd::milliseconds{25};
-      static auto last_sample_time = estd::milliseconds{0};
-      static auto distance = radar.get_distance();
-
-      const auto now = ardent::millis();
-      if(now.value - last_sample_time.value > sample_interval.value)
-      {
-        const auto distance = radar.get_distance();
-        last_sample_time = now;
-
-        for(const auto& range : ranges)
+void loop()
+{
+    static ultrasonic_sensor radar{9, 10};
+    static rgb_led<common_cathode_tag> led{6, 5, 3};
+    static ardent::passive_buzzer buzzer{12};
+    static bool measuring = false;
+    static auto press_detector = event_cycle_detector(push_button{8}, []() {
+        measuring = !measuring;
+        if (!measuring)
         {
-          if(distance.value >= std::get<0>(range).value && distance.value < std::get<1>(range).value)
-          {
-            const auto color = std::get<2>(range);
-            led.set_color(color);
-            const auto tone = std::get<3>(range);
-            const auto tone_duration = std::get<4>(range);
-            const auto tone_pause = std::get<5>(range);
+            led.turn_off();
+            buzzer.stop_beeping();
+        }
+    });
 
-            if(tone.has_value() && !buzzer.is_beeping())
+    press_detector.update();
+    buzzer.update();
+
+    if (measuring)
+    {
+        constexpr auto sample_interval = estd::milliseconds{25};
+        static auto last_sample_time = estd::milliseconds{0};
+
+        const auto now = ardent::millis();
+        if (now.value - last_sample_time.value > sample_interval.value)
+        {
+            const auto distance = radar.get_distance();
+            last_sample_time = now;
+
+            for (auto i = 0u; i < sizeof(ranges) / sizeof(ranges[0]); i++)
             {
-              buzzer.beep(static_cast<ardent::frequency>(tone.value()), tone_duration, [&]() {
-                buzzer.mute(tone_pause, []() {});
-              });
-              break;
+                const auto range = get_interval(i);
+                if (distance.value >= range.start.value && distance.value < range.end.value)
+                {
+                    const auto color = range.color;
+                    led.set_color(color);
+                    const auto tone = range.pitch;
+                    const auto tone_duration = range.duration;
+                    const auto tone_pause = range.pause;
+
+                    if (!buzzer.is_beeping())
+                    {
+                        buzzer.beep(static_cast<ardent::frequency>(tone), tone_duration,
+                                    [&]() { buzzer.mute(tone_pause, []() {}); });
+                        break;
+                    }
+                }
             }
-          }
         }
     }
-  }
 }
