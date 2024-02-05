@@ -46,12 +46,13 @@ void loop() {
 
 
   press_detector.update();
+  buzzer.update();
 
   if(measuring)
   {
       constexpr auto sample_interval = estd::milliseconds{25};
       static auto last_sample_time = estd::milliseconds{0};
-      [[maybe_unused]]static auto distance = radar.get_distance();
+      static auto distance = radar.get_distance();
 
       const auto now = ardent::millis();
       if(now.value - last_sample_time.value > sample_interval.value)
@@ -69,17 +70,13 @@ void loop() {
             const auto tone_duration = std::get<4>(range);
             const auto tone_pause = std::get<5>(range);
 
-            if(tone.has_value())
+            if(tone.has_value() && !buzzer.is_beeping())
             {
-              buzzer.stop_beeping();
-              buzzer.start_beeping(static_cast<ardent::frequency>(tone.value()));
-              if(tone_duration.value > 0) {
-                ardent::sleep(tone_duration);
-                buzzer.stop_beeping();
-                ardent::sleep(tone_pause);
-              }
+              buzzer.beep(static_cast<ardent::frequency>(tone.value()), tone_duration, [&]() {
+                buzzer.mute(tone_pause, []() {});
+              });
+              break;
             }
-            break;
           }
         }
     }
