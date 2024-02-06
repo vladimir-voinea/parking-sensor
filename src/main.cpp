@@ -84,7 +84,7 @@ void loop()
                     const auto tone_duration = range.duration;
                     const auto tone_pause = range.pause;
 
-                    if (!buzzer.is_beeping())
+                    if (tone_duration.value && !buzzer.is_beeping())
                     {
                         buzzer.beep(static_cast<ardent::frequency>(tone), tone_duration,
                                     [&]() { buzzer.mute(tone_pause, []() {}); });
